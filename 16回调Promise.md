@@ -249,3 +249,70 @@ p.then(
 可以看到，默认的完成处理函数只是把接收到的任何传入值传递给下一个步骤（`Promise`）而已。
 
 > then(null, function() {})这个模式，只处理拒绝，但又把完成值传递下去。是有一个缩写的`API`，`catch(function(err){..})`
+
+### Promise 模式
+
+#### promise.all([...])
+如下代码：
+```js
+var p1 = request('http://some.url.1/')
+var p2 = request('http://some.url.2/')
+Promise.all([p1, p2])
+.then(function (msgs) {
+  // 这里p1和p2完成并把他们的消息传入
+  return request('http://some.url.3/?v=' + msg.join(','))
+})
+.then(function (msg) {
+  console.log(msg)
+})
+```
+ `msgs`是上面所有请求返回的消息数组，与指定的顺序一致，与完成的顺序无关。严格来说，传给`Promise.all([..])`的数组中的值可以是`Promise`、`thenable`，甚至是立即值。就本质而言，列表中的每个值都会通过`Promise.resolve(..)`过滤，来确保要等待的是一个真正的`Promise`，所以立即值会被规范化为这个值构建的`Promise`。如果数组问空的，主`Promise`就会立即完成。如果在数组中的`Promise`中有一个被拒绝的话，主`Promise.all([]) promise`会立即被拒绝，并丢弃来自其他所有`promise`的结果。
+
+ #### promise.race([...])
+ 他跟上面的`promise.all([...])`参数都是类似的，只不过需要注意的是，参数中的`promise`只要有一个完成，这个`promise`就会返回结果，一旦有任何一个`promise`决议为拒绝，主的`promise.race()`就会被拒绝。
+
+> 还有一个不一样的是，如果你传入一个空数组，`promise.race()`永远不会决议，而不是像`promise.all([...])`会立即决议。
+
+下面的例子是给`promise`数组实现一个类似数组的`map`循环方法：
+他接收一个数组的值（可以是`Promise`或者其他任何值），外加要在每个值上运行一个函数（任务）作为参数，`map(..)`本身返回一个`Promise`，其完成值是一个数组，该数组（保持映射顺序）保存任务执行之后的异步完成值。
+```js
+if (!Promise.map) {
+  Promise.map = function(vals, cb) {
+    // 一个等待所有map的promise的新promise
+    return Promise.all(
+      // 注：一般数组map(..)把数值转换为promise数组
+      vals.map(function (val) {
+        // 用val异步map之后决议的新promise替换val
+        return new Promise(function (resolve) {
+          cb(val, resolve)
+        })
+      })
+    )
+  }
+}
+```
+在这个`map(..)`实现中，不能发送异步拒绝信号，但如果在映射的回调（`cb(..)`）内出现同步的异常或者错误，主`Promise.map(..)`返回的`promise`就会拒绝。
+
+下面代码展示如果使用这个`promise.map(..)`：
+```js
+var p1 = Promise.resolve(21)
+var p2 = Promise.resolve(42)
+var p3 = Promise.resolve('err')
+// 把列表中的值加倍，即使是在promise中
+Promise.map([p1, p2, p3], function(pr, done) {
+  // 保证这一条本身是一个Promise
+  Promise.resolve(pr)
+  .then(
+    // 提取值做为v
+    function (v) {
+      // map完成的v到新值
+      done(v * 2)
+    },
+    // 或者map到promise拒绝消息
+    done
+  )
+})
+.then(function (vals) {
+  console.log(vals)
+})
+```
