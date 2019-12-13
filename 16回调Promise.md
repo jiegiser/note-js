@@ -268,7 +268,7 @@ Promise.all([p1, p2])
 ```
  `msgs`是上面所有请求返回的消息数组，与指定的顺序一致，与完成的顺序无关。严格来说，传给`Promise.all([..])`的数组中的值可以是`Promise`、`thenable`，甚至是立即值。就本质而言，列表中的每个值都会通过`Promise.resolve(..)`过滤，来确保要等待的是一个真正的`Promise`，所以立即值会被规范化为这个值构建的`Promise`。如果数组问空的，主`Promise`就会立即完成。如果在数组中的`Promise`中有一个被拒绝的话，主`Promise.all([]) promise`会立即被拒绝，并丢弃来自其他所有`promise`的结果。
 
- #### promise.race([...])
+#### promise.race([...])
  他跟上面的`promise.all([...])`参数都是类似的，只不过需要注意的是，参数中的`promise`只要有一个完成，这个`promise`就会返回结果，一旦有任何一个`promise`决议为拒绝，主的`promise.race()`就会被拒绝。
 
 > 还有一个不一样的是，如果你传入一个空数组，`promise.race()`永远不会决议，而不是像`promise.all([...])`会立即决议。
@@ -315,4 +315,63 @@ Promise.map([p1, p2, p3], function(pr, done) {
 .then(function (vals) {
   console.log(vals)
 })
+```
+
+#### 无法取消的Promise
+一旦创建了一个`Promise`并为其注册了完成和/或拒绝处理函数，如果出现某种情况使得这个任务没有接到运行结果，你也没有办法从外部停止他的进程。
+
+我们可以定义自己的决议回调：
+
+```js
+var OK = true
+var p = foo(42)
+Promise.race([
+  p,
+  timeoutPromise(3000)
+  .catch(function (err) {
+    OK = false
+    throw err
+  })
+])
+.then(
+  doSomething,
+  handleError
+)
+p.then(function () {
+  if (OK) {
+    // 只有没有超时情况下才会发生
+  }
+})
+```
+我们一般使用`Promise`，可以进行封装成一个函数：
+
+```js
+// polyfill 安全的guard检查
+if (!Promise.wrap) {
+  Promise.wrap = function (fn) {
+    return function () {
+      var args = [].slice.call(argumentd)
+      return new Promise(function (resolve, reject) {
+        fn.apply(
+          null,
+          args.concat(function (err, v) {
+            if (err) {
+              reject(err)
+            } else {
+              resolve(v)
+            }
+          })
+        )
+      })
+    }
+  }
+}
+```
+使用它如下：
+
+```js
+var request = Promise.wrap(ajax)
+request('http://some.url.1/')
+.then(..)
+..
 ```
